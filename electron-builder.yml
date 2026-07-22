@@ -28,6 +28,12 @@ files:
 mac:
   category: public.app-category.business
   icon: assets/icon.png
+  # Signed (Developer ID via CSC_LINK) + notarized (App Store Connect API key in
+  # env). Notarization requires the hardened runtime; electron-builder supplies
+  # the standard Electron entitlements automatically.
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  notarize: true
   target:
     - target: dmg   # human download
       arch: [arm64, x64]

@@ -22,11 +22,7 @@ jobs:
     strategy:
       fail-fast: false # one platform failing shouldn't cancel the other
       matrix:
-        include:
-          - os: macos-latest
-            build: npm run release:mac
-          - os: windows-latest
-            build: npm run release:win
+        os: [macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -45,12 +41,32 @@ jobs:
 
       - run: npm ci
 
-      # Build + publish to GitHub Releases. Ships UNSIGNED — users see a one-time
-      # "unidentified developer" prompt (mac: right-click → Open).
-      # CSC_IDENTITY_AUTO_DISCOVERY=false stops electron-builder probing for a
-      # signing identity. To sign later, add certs + the CSC_*/APPLE_* env here.
-      - name: Build & publish
-        run: ${{ matrix.build }}
+      # Decode the App Store Connect API key (.p8) from its base64 secret into a
+      # file for notarytool. macOS job only.
+      - name: Write notarization API key (macOS)
+        if: runner.os == 'macOS'
+        run: 'echo "$APPLE_API_KEY_P8" | base64 --decode > "$RUNNER_TEMP/api_key.p8"'
+        env:
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+
+      # macOS: signed with the Developer ID cert (CSC_LINK) + notarized via the
+      # App Store Connect API key. Kept a separate step from Windows so the
+      # signing env is scoped to mac only (an empty CSC_LINK on Windows would be
+      # misread as a Windows cert path).
+      - name: Build & publish (macOS)
+        if: runner.os == 'macOS'
+        run: npm run release:mac
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CSC_IDENTITY_AUTO_DISCOVERY: false
+          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          APPLE_API_KEY: ${{ runner.temp }}/api_key.p8
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+
+      # Windows: ships UNSIGNED for now (users see a one-time SmartScreen prompt).
+      - name: Build & publish (Windows)
+        if: runner.os == 'Windows'
+        run: npm run release:win
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

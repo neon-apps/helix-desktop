@@ -51,8 +51,11 @@ Stable download URLs (used by the Helix `/download` page):
 - `https://github.com/neon-apps/helix-desktop/releases/latest/download/Helix-mac-x64.dmg`
 - `https://github.com/neon-apps/helix-desktop/releases/latest/download/Helix-win-x64.exe`
 
-## Signing (optional)
+## Signing
 
-Unsigned builds work but show a one-time "unidentified developer" warning. To
-sign + notarize, add the `CSC_LINK` / `APPLE_ID` / … secrets and reference them
-in `.github/workflows/release.yml`.
+- **macOS** is signed (Developer ID) + notarized in CI. Required repo secrets:
+  `MAC_CSC_LINK` (base64 of the `.p12`), `MAC_CSC_KEY_PASSWORD`,
+  `APPLE_API_KEY_P8` (base64 of the App Store Connect `.p8`), `APPLE_API_KEY_ID`,
+  `APPLE_API_ISSUER`.
+- **Windows** ships unsigned (one-time SmartScreen prompt). Add a code-signing
+  cert + wire it into the Windows build step to sign it later.
