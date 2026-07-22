@@ -1,0 +1,49 @@
+appId: co.neonapps.helix
+productName: Helix
+copyright: © Neon Apps
+
+# Finished installers + the auto-update feed are published to this repo's GitHub
+# Releases. The repo is public so the .dmg/.exe (which hold no secrets) are
+# publicly downloadable by the Helix /download page, and electron-updater reads
+# the same release feed. One block powers both distribution and auto-update.
+publish:
+  provider: github
+  owner: neon-apps
+  repo: helix-desktop
+
+directories:
+  output: dist
+  buildResources: assets
+
+files:
+  - main.js
+  - preload.js
+  - assets/**/*
+
+# Fixed, version-less artifact names so the download page can link to
+# github.com/neon-apps/helix-desktop/releases/latest/download/<name>.
+mac:
+  category: public.app-category.business
+  icon: assets/icon.png
+  target:
+    - target: dmg   # human download
+      arch: [arm64, x64]
+    - target: zip   # required by electron-updater on macOS
+      arch: [arm64, x64]
+  artifactName: Helix-mac-${arch}.${ext}
+
+dmg:
+  title: Helix ${version}
+
+win:
+  icon: assets/icon.png
+  target:
+    - target: nsis
+      arch: [x64]
+  artifactName: Helix-win-${arch}.${ext}
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  shortcutName: Helix

@@ -1,0 +1,56 @@
+# Builds Helix for macOS (Apple Silicon + Intel) and Windows, then publishes the
+# installers + auto-update feed to this repo's GitHub Releases.
+#
+# Trigger: push a version tag, e.g.
+#   git tag v1.0.0 && git push origin v1.0.0
+#
+# macOS installers build on a mac runner, Windows on a windows runner (Windows
+# installers can't be produced reliably off Windows). Both publish into the same
+# GitHub Release (electron-builder's github provider), which electron-updater reads.
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write # electron-builder needs this to create/upload the Release
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false # one platform failing shouldn't cancel the other
+      matrix:
+        include:
+          - os: macos-latest
+            build: npm run release:mac
+          - os: windows-latest
+            build: npm run release:win
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      # GitHub's macOS runners let Spotlight (mds) index the mounted DMG volume,
+      # holding it busy so `hdiutil detach` fails ("resource busy") and the DMG
+      # build dies. Turning indexing off for the run avoids the flake.
+      - name: Disable Spotlight indexing (macOS DMG detach fix)
+        if: runner.os == 'macOS'
+        run: sudo mdutil -a -i off || true
+
+      - run: npm ci
+
+      # Build + publish to GitHub Releases. Ships UNSIGNED — users see a one-time
+      # "unidentified developer" prompt (mac: right-click → Open).
+      # CSC_IDENTITY_AUTO_DISCOVERY=false stops electron-builder probing for a
+      # signing identity. To sign later, add certs + the CSC_*/APPLE_* env here.
+      - name: Build & publish
+        run: ${{ matrix.build }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_IDENTITY_AUTO_DISCOVERY: false
