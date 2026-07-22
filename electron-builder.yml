@@ -10,6 +10,9 @@ publish:
   provider: github
   owner: neon-apps
   repo: helix-desktop
+  # Publish as a full (non-draft) release so /releases/latest/download/… and the
+  # updater feed resolve immediately. Default is 'draft', which 404s publicly.
+  releaseType: release
 
 directories:
   output: dist
