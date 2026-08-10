@@ -110,41 +110,24 @@ function isExternal(url) {
   }
 }
 
-function isHelixUrl(url) {
-  try {
-    return new URL(url).host === HELIX_HOST;
-  } catch {
-    return false;
-  }
-}
 
 // Grant the Helix page the mic (and notifications) so the WebRTC softphone can
 // place/answer calls. Electron denies media permission by default for loaded
-// content; without this getUserMedia just fails and calls never connect. On
-// macOS we also trigger the native mic prompt via askForMediaAccess, which is
-// what registers the app under System Settings → Privacy → Microphone.
+// content; without this getUserMedia just fails and calls never connect.
+//
+// This shell ONLY ever loads Helix (off-Helix navigation opens in the system
+// browser — see setWindowOpenHandler / will-navigate), so we grant the softphone
+// capabilities outright. Both handlers answer SYNCHRONOUSLY: an async request
+// handler, or a check handler that denies on an origin mismatch, was letting
+// getUserMedia fail even when macOS had already allowed the mic. The macOS TCC
+// prompt itself is handled eagerly at startup via askForMediaAccess().
 function enableMediaPermissions() {
+  const GRANT = new Set(['media', 'microphone', 'audioCapture', 'notifications']);
   const ses = session.defaultSession;
-  const MEDIA = new Set(['media', 'microphone', 'audioCapture']);
-  ses.setPermissionRequestHandler((wc, permission, callback, details) => {
-    const url = (details && details.requestingUrl) || (wc && wc.getURL && wc.getURL()) || '';
-    if (permission === 'notifications' && isHelixUrl(url)) return callback(true);
-    if (MEDIA.has(permission) && isHelixUrl(url)) {
-      if (process.platform === 'darwin') {
-        systemPreferences
-          .askForMediaAccess('microphone')
-          .then((ok) => callback(!!ok))
-          .catch(() => callback(true));
-        return;
-      }
-      return callback(true);
-    }
-    callback(false);
+  ses.setPermissionRequestHandler((_wc, permission, callback) => {
+    callback(GRANT.has(permission));
   });
-  ses.setPermissionCheckHandler((_wc, permission, requestingOrigin) => {
-    if (permission === 'notifications') return isHelixUrl(requestingOrigin || '');
-    return MEDIA.has(permission) && isHelixUrl(requestingOrigin || '');
-  });
+  ses.setPermissionCheckHandler((_wc, permission) => GRANT.has(permission));
 }
 
 function setBadge(count) {
@@ -192,6 +175,11 @@ if (!gotLock) {
 
   app.whenReady().then(() => {
     enableMediaPermissions();
+    // macOS: obtain the OS mic grant up front (registers the app under System
+    // Settings → Privacy → Microphone). No-op/instant once already granted.
+    if (process.platform === 'darwin') {
+      systemPreferences.askForMediaAccess('microphone').catch(() => {});
+    }
     Menu.setApplicationMenu(buildMenu());
     createWindow();
     initAutoUpdates();
