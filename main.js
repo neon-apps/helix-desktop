@@ -9,7 +9,7 @@
 // change ships instantly with zero app update; electron-updater only matters
 // when THIS shell changes (Electron version, native behaviour below).
 
-const { app, BrowserWindow, shell, Menu, nativeImage, ipcMain } = require('electron');
+const { app, BrowserWindow, shell, Menu, nativeImage, ipcMain, session, systemPreferences } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const path = require('path');
 const fs = require('fs');
@@ -110,6 +110,43 @@ function isExternal(url) {
   }
 }
 
+function isHelixUrl(url) {
+  try {
+    return new URL(url).host === HELIX_HOST;
+  } catch {
+    return false;
+  }
+}
+
+// Grant the Helix page the mic (and notifications) so the WebRTC softphone can
+// place/answer calls. Electron denies media permission by default for loaded
+// content; without this getUserMedia just fails and calls never connect. On
+// macOS we also trigger the native mic prompt via askForMediaAccess, which is
+// what registers the app under System Settings → Privacy → Microphone.
+function enableMediaPermissions() {
+  const ses = session.defaultSession;
+  const MEDIA = new Set(['media', 'microphone', 'audioCapture']);
+  ses.setPermissionRequestHandler((wc, permission, callback, details) => {
+    const url = (details && details.requestingUrl) || (wc && wc.getURL && wc.getURL()) || '';
+    if (permission === 'notifications' && isHelixUrl(url)) return callback(true);
+    if (MEDIA.has(permission) && isHelixUrl(url)) {
+      if (process.platform === 'darwin') {
+        systemPreferences
+          .askForMediaAccess('microphone')
+          .then((ok) => callback(!!ok))
+          .catch(() => callback(true));
+        return;
+      }
+      return callback(true);
+    }
+    callback(false);
+  });
+  ses.setPermissionCheckHandler((_wc, permission, requestingOrigin) => {
+    if (permission === 'notifications') return isHelixUrl(requestingOrigin || '');
+    return MEDIA.has(permission) && isHelixUrl(requestingOrigin || '');
+  });
+}
+
 function setBadge(count) {
   if (process.platform === 'darwin') {
     app.dock.setBadge(count > 0 ? String(count) : '');
@@ -154,6 +191,7 @@ if (!gotLock) {
   });
 
   app.whenReady().then(() => {
+    enableMediaPermissions();
     Menu.setApplicationMenu(buildMenu());
     createWindow();
     initAutoUpdates();
