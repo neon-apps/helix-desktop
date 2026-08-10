@@ -9,7 +9,7 @@
 // change ships instantly with zero app update; electron-updater only matters
 // when THIS shell changes (Electron version, native behaviour below).
 
-const { app, BrowserWindow, shell, Menu, nativeImage, ipcMain, session, systemPreferences } = require('electron');
+const { app, BrowserWindow, shell, Menu, nativeImage, ipcMain, session, systemPreferences, dialog } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const path = require('path');
 const fs = require('fs');
@@ -161,6 +161,75 @@ function initAutoUpdates() {
   setInterval(() => autoUpdater.checkForUpdatesAndNotify().catch(() => {}), 6 * 60 * 60 * 1000);
 }
 
+// Manual "Check for Updates…" from the app menu. Unlike the silent background
+// check, this gives feedback: up-to-date, downloading, or ready-to-restart.
+let updateCheckInProgress = false;
+function checkForUpdatesInteractive() {
+  if (!app.isPackaged) {
+    dialog.showMessageBox({
+      type: 'info',
+      message: 'Updates are only available in the installed app.',
+      detail: `You’re running Helix ${app.getVersion()} in development.`,
+    });
+    return;
+  }
+  if (updateCheckInProgress) return;
+  updateCheckInProgress = true;
+
+  function cleanup() {
+    updateCheckInProgress = false;
+    autoUpdater.removeListener('update-available', onAvailable);
+    autoUpdater.removeListener('update-not-available', onNotAvailable);
+    autoUpdater.removeListener('update-downloaded', onDownloaded);
+    autoUpdater.removeListener('error', onError);
+  }
+  function onAvailable(info) {
+    dialog.showMessageBox({
+      type: 'info',
+      message: 'Downloading update…',
+      detail: `Helix ${info && info.version ? info.version : ''} is downloading. You’ll be asked to restart when it’s ready.`,
+    });
+  }
+  function onNotAvailable() {
+    cleanup();
+    dialog.showMessageBox({
+      type: 'info',
+      message: 'You’re up to date.',
+      detail: `Helix ${app.getVersion()} is the latest version.`,
+    });
+  }
+  function onDownloaded(info) {
+    cleanup();
+    dialog
+      .showMessageBox({
+        type: 'info',
+        buttons: ['Restart now', 'Later'],
+        defaultId: 0,
+        cancelId: 1,
+        message: 'Update ready',
+        detail: `Helix ${info && info.version ? info.version : ''} has been downloaded. Restart to install.`,
+      })
+      .then(({ response }) => {
+        if (response === 0) autoUpdater.quitAndInstall();
+      });
+  }
+  function onError(err) {
+    cleanup();
+    dialog.showMessageBox({
+      type: 'error',
+      message: 'Update check failed',
+      detail: String((err && err.message) || err || 'Unknown error'),
+    });
+  }
+
+  autoUpdater.autoDownload = true;
+  autoUpdater.on('update-available', onAvailable);
+  autoUpdater.on('update-not-available', onNotAvailable);
+  autoUpdater.on('update-downloaded', onDownloaded);
+  autoUpdater.on('error', onError);
+  autoUpdater.checkForUpdates().catch(onError);
+}
+
 // ---- App lifecycle --------------------------------------------------------
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
@@ -198,8 +267,26 @@ if (!gotLock) {
 // Minimal native menu: keeps Cmd+C/V/Z, reload, zoom, devtools, quit working.
 function buildMenu() {
   const isMac = process.platform === 'darwin';
+  const checkForUpdatesItem = { label: 'Check for Updates…', click: () => checkForUpdatesInteractive() };
   return Menu.buildFromTemplate([
-    ...(isMac ? [{ role: 'appMenu' }] : []),
+    // Custom app menu (macOS) so we can add "Check for Updates…" next to About.
+    ...(isMac
+      ? [{
+          label: app.name,
+          submenu: [
+            { role: 'about' },
+            checkForUpdatesItem,
+            { type: 'separator' },
+            { role: 'services' },
+            { type: 'separator' },
+            { role: 'hide' },
+            { role: 'hideOthers' },
+            { role: 'unhide' },
+            { type: 'separator' },
+            { role: 'quit' },
+          ],
+        }]
+      : []),
     { role: 'fileMenu' },
     { role: 'editMenu' },
     {
@@ -217,5 +304,7 @@ function buildMenu() {
       ],
     },
     { role: 'windowMenu' },
+    // Windows/Linux have no app menu, so surface updates under Help.
+    { role: 'help', submenu: [checkForUpdatesItem] },
   ]);
 }
