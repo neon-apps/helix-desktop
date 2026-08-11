@@ -151,6 +151,9 @@ function setBadge(count) {
 // Let the web app drive the badge explicitly via window.helix.setBadge(n).
 ipcMain.on('helix:set-badge', (_e, count) => setBadge(Number(count) || 0));
 
+// Synchronous version lookup for the preload bridge (window.helix.version).
+ipcMain.on('helix:get-version', (e) => { e.returnValue = app.getVersion(); });
+
 // ---- Auto-update (shell only) --------------------------------------------
 // Checks the public release feed on launch and every 6 hours, downloads in the
 // background, and installs on the next quit. Fails silently in dev / unsigned.

@@ -7,5 +7,8 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('helix', {
   isDesktop: true,
   platform: process.platform,
+  // App shell version (e.g. "1.0.4") so the web UI can show it + tell users when
+  // to update. Resolved synchronously at load from the main process.
+  version: ipcRenderer.sendSync('helix:get-version'),
   setBadge: (count) => ipcRenderer.send('helix:set-badge', count),
 });
