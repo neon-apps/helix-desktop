@@ -10,6 +10,12 @@
   const platform = new URLSearchParams(location.search).get('platform');
   if (platform === 'darwin') root.classList.add('mac');
 
+  // A mouse click must not leave a focus ring on the button (focus would
+  // stay on it while the page has the keyboard). Keyboard focus still shows.
+  document.addEventListener('mousedown', (e) => {
+    if (e.target instanceof Element && e.target.closest('button')) e.preventDefault();
+  });
+
   ['back', 'forward', 'reload', 'copy', 'feedback'].forEach((action) => {
     $(action).addEventListener('click', () => api.send(action));
   });
