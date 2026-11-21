@@ -397,6 +397,21 @@ function openFind() {
 
 // findNext follows Electron's meaning: true = start a new search session,
 // false = move to the next/previous match of the current one.
+// Ask the page to open its smart search. The web app answers 'opened' when it
+// did, or 'find' when the search was already open (second Cmd+F means "find
+// in page", like Slack). Pages without it (sign-in, older web builds) fall back
+// to find in page.
+function smartSearchOrFind() {
+  if (!pageView || offlineView) return openFind();
+  pageView.webContents
+    .executeJavaScript("window.helixSmartSearch && typeof window.helixSmartSearch.cmdF === 'function' ? window.helixSmartSearch.cmdF() : 'none'", true)
+    .then((res) => {
+      if (res === 'opened') pageView && pageView.webContents.focus();
+      else openFind();
+    })
+    .catch(() => openFind());
+}
+
 function findInPage(text, forward = true, findNext = true) {
   if (!pageView) return;
   const page = pageView.webContents;
@@ -743,7 +758,11 @@ function buildMenu() {
         { role: 'delete' },
         { role: 'selectAll' },
         { type: 'separator' },
-        { label: 'Find…', accelerator: 'CmdOrCtrl+F', click: () => openFind() },
+        // Cmd+F belongs to Helix's smart search; the page decides (see
+        // smartSearchOrFind). Find in page is Shift+Cmd+F, or Cmd+F again
+        // while the search is open.
+        { label: 'Search Helix…', accelerator: 'CmdOrCtrl+F', click: () => smartSearchOrFind() },
+        { label: 'Find in Page…', accelerator: 'Shift+CmdOrCtrl+F', click: () => openFind() },
         { label: 'Find Next', accelerator: 'CmdOrCtrl+G', click: () => findAgain(true) },
         { label: 'Find Previous', accelerator: 'Shift+CmdOrCtrl+G', click: () => findAgain(false) },
       ],
