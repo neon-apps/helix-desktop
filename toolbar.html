@@ -1,0 +1,135 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'self'; img-src data:" />
+<title>Helix</title>
+<!--
+  Native top bar for the Helix desktop shell. It is its own tiny page that sits
+  in the window's top strip, above the Helix web app (which lives in a separate
+  WebContentsView below it). That keeps the macOS traffic lights off the page,
+  gives the window a real drag handle, and hosts the browser-ish controls a
+  chromeless window otherwise lacks: back, forward, refresh, copy link and
+  "Send feedback". Talks to main.js only through toolbar-preload.js.
+-->
+<style>
+  :root {
+    --bg: #0d0f14;
+    --fg: rgba(255, 255, 255, 0.86);
+    --mute: rgba(255, 255, 255, 0.5);
+    --hover: rgba(255, 255, 255, 0.08);
+    --press: rgba(255, 255, 255, 0.13);
+    --line: rgba(255, 255, 255, 0.07);
+    --ok: #34d399;
+  }
+  :root.light {
+    --fg: rgba(0, 0, 0, 0.82);
+    --mute: rgba(0, 0, 0, 0.5);
+    --hover: rgba(0, 0, 0, 0.06);
+    --press: rgba(0, 0, 0, 0.1);
+    --line: rgba(0, 0, 0, 0.08);
+    --ok: #059669;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    height: 100%;
+    overflow: hidden;
+    background: var(--bg);
+    color: var(--fg);
+    font: 12.5px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    user-select: none;
+    -webkit-user-select: none;
+    cursor: default;
+  }
+  /* The window's own page spans the whole window; only its top strip shows
+     above the Helix view, so the bar is pinned to that strip. */
+  .bar {
+    position: relative;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding: 0 10px 0 12px;
+    border-bottom: 1px solid var(--line);
+    -webkit-app-region: drag;
+  }
+  /* Room for the macOS traffic lights (hidden in full screen). */
+  .mac .bar { padding-left: 80px; }
+  .mac.fullscreen .bar { padding-left: 12px; }
+  .group { display: flex; align-items: center; gap: 2px; -webkit-app-region: no-drag; }
+  .spacer { flex: 1; }
+  button {
+    -webkit-app-region: no-drag;
+    appearance: none;
+    border: 0;
+    background: transparent;
+    color: var(--mute);
+    height: 28px;
+    min-width: 28px;
+    padding: 0 6px;
+    border-radius: 7px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    font: inherit;
+    transition: background-color 120ms, color 120ms;
+  }
+  button:hover:not(:disabled) { background: var(--hover); color: var(--fg); }
+  button:active:not(:disabled) { background: var(--press); }
+  button:disabled { opacity: 0.32; }
+  button:focus-visible { outline: 2px solid rgba(99, 102, 241, 0.7); outline-offset: 1px; }
+  button.pill { padding: 0 10px 0 8px; }
+  svg { width: 16px; height: 16px; flex: none; }
+  .ok { color: var(--ok) !important; }
+  /* The hidden attribute does not apply to inline SVG, so toggle a class. */
+  .off { display: none; }
+  .loading #reload svg { animation: spin 0.9s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .title {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    max-width: 40%;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    color: var(--mute);
+    font-weight: 500;
+    pointer-events: none;
+  }
+  .sep { width: 1px; height: 16px; background: var(--line); margin: 0 6px; }
+  @media (max-width: 640px) { .title { display: none; } .pill span { display: none; } }
+</style>
+</head>
+<body>
+  <div class="bar">
+    <div class="group">
+      <button id="back" title="Back" aria-label="Back" disabled>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+      </button>
+      <button id="forward" title="Forward" aria-label="Forward" disabled>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+      </button>
+      <button id="reload" title="Refresh page" aria-label="Refresh page">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>
+      </button>
+    </div>
+    <div class="title" id="title"></div>
+    <div class="spacer"></div>
+    <div class="group">
+      <button id="copy" title="Copy page link" aria-label="Copy page link">
+        <svg id="copy-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 17H7A5 5 0 0 1 7 7h2"/><path d="M15 7h2a5 5 0 1 1 0 10h-2"/><line x1="8" x2="16" y1="12" y2="12"/></svg>
+        <svg id="copied-icon" class="off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+      </button>
+      <div class="sep"></div>
+      <button id="feedback" class="pill" title="Send feedback" aria-label="Send feedback">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M12 7v6"/><path d="M9 10h6"/></svg>
+        <span>Feedback</span>
+      </button>
+    </div>
+  </div>
+  <script src="toolbar.js"></script>
+</body>
+</html>

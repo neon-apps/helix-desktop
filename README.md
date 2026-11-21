@@ -7,6 +7,8 @@ It loads `https://helix.neonapps.co` in a native window and adds:
 
 - Dock / taskbar **unread badge** (mirrors a `(3)` count in the page title, or
   driven explicitly by the web app via `window.helix.setBadge(n)`)
+- A native **top bar** (macOS traffic lights sit in it, not over the page) with
+  back, forward, refresh, copy page link and Send feedback
 - Real OS **notifications**
 - External links open in the system browser
 - Remembered window size/position

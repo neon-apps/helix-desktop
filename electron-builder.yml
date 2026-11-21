@@ -21,6 +21,9 @@ directories:
 files:
   - main.js
   - preload.js
+  - toolbar.html
+  - toolbar.js
+  - toolbar-preload.js
   - assets/**/*
 
 # Fixed, version-less artifact names so the download page can link to

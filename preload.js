@@ -11,4 +11,8 @@ contextBridge.exposeInMainWorld('helix', {
   // to update. Resolved synchronously at load from the main process.
   version: ipcRenderer.sendSync('helix:get-version'),
   setBadge: (count) => ipcRenderer.send('helix:set-badge', count),
+  // True from v1.0.5: the shell draws its own top bar with back/forward,
+  // refresh, copy link and feedback, so the web app hides its floating
+  // options button.
+  toolbar: true,
 });
