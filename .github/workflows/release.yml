@@ -22,7 +22,10 @@ jobs:
     strategy:
       fail-fast: false # one platform failing shouldn't cancel the other
       matrix:
-        os: [macos-latest, windows-latest]
+        # macos-15, not macos-latest: on the macOS 26 runner image electron-builder
+        # 25's temporary signing keychain fails to unlock (set-key-partition-list:
+        # "passphrase you entered is not correct"), which killed the v1.0.5 build.
+        os: [macos-15, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
