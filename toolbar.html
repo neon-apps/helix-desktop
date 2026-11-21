@@ -50,7 +50,7 @@
     display: flex;
     align-items: center;
     gap: 2px;
-    padding: 0 10px 0 12px;
+    padding: 0 12px;
     border-bottom: 1px solid var(--line);
     -webkit-app-region: drag;
   }
@@ -98,7 +98,9 @@
     font-weight: 500;
     pointer-events: none;
   }
-  .sep { width: 1px; height: 16px; background: var(--line); margin: 0 6px; }
+  /* The speech-bubble icon's body sits above its tail, so it reads high next
+     to the link icon; nudge it down to share the same optical centre. */
+  #feedback svg { transform: translateY(1px); }
   /* Find in page: replaces the title while open. */
   .find {
     position: absolute;
@@ -171,7 +173,6 @@
         <svg id="copy-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 17H7A5 5 0 0 1 7 7h2"/><path d="M15 7h2a5 5 0 1 1 0 10h-2"/><line x1="8" x2="16" y1="12" y2="12"/></svg>
         <svg id="copied-icon" class="off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
       </button>
-      <div class="sep"></div>
       <button id="feedback" title="Send feedback" aria-label="Send feedback">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M12 7v6"/><path d="M9 10h6"/></svg>
       </button>
