@@ -9,6 +9,10 @@ It loads `https://helix.neonapps.co` in a native window and adds:
   driven explicitly by the web app via `window.helix.setBadge(n)`)
 - A native **top bar** (macOS traffic lights sit in it, not over the page) with
   back, forward, refresh, copy page link and Send feedback
+- **Right-click menu** (copy/paste, spelling suggestions, link and image actions)
+- **Find in page** (Cmd/Ctrl+F, in the top bar)
+- An **offline screen** that reconnects by itself
+- **helix:// links** (helix://tasks/123 opens that page in the app)
 - Real OS **notifications**
 - External links open in the system browser
 - Remembered window size/position

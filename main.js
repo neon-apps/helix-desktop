@@ -9,7 +9,7 @@
 // change ships instantly with zero app update; electron-updater only matters
 // when THIS shell changes (Electron version, native behaviour below).
 
-const { app, BrowserWindow, WebContentsView, shell, Menu, nativeImage, ipcMain, session, systemPreferences, dialog, clipboard } = require('electron');
+const { app, BrowserWindow, WebContentsView, shell, Menu, nativeImage, ipcMain, session, systemPreferences, dialog, clipboard, net } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const path = require('path');
 const fs = require('fs');
@@ -18,6 +18,52 @@ const fs = require('fs');
 // Next server (HELIX_URL=http://localhost:3000).
 const HELIX_URL = process.env.HELIX_URL || 'https://helix.neonapps.co';
 const HELIX_HOST = new URL(HELIX_URL).host;
+
+// Custom URL scheme: helix://tasks/123 opens https://helix.neonapps.co/tasks/123
+// in this app. The web app sends people here from a normal browser tab when
+// they turn on "Open Helix links in the desktop app" (see /download).
+const PROTOCOL = 'helix';
+
+/** helix://<path> (or a full Helix https URL) -> the Helix URL to load, or null. */
+function deepLinkToUrl(link) {
+  if (typeof link !== 'string') return null;
+  try {
+    if (link.startsWith(`${PROTOCOL}:`)) {
+      // Take everything after "helix:" as a path: helix://tasks/1, helix:///tasks/1
+      // and helix://tasks/1?x=1#y all land on /tasks/1 of the Helix site.
+      const rest = link.slice(PROTOCOL.length + 1).replace(/^\/+/, '');
+      const target = new URL(`/${rest}`, HELIX_URL);
+      return target.host === HELIX_HOST ? target.toString() : null;
+    }
+    const u = new URL(link);
+    if ((u.protocol === 'https:' || u.protocol === 'http:') && u.host === HELIX_HOST) return u.toString();
+  } catch {
+    /* not a URL */
+  }
+  return null;
+}
+
+// A link that arrives before the window exists (cold start from a helix:// link).
+let pendingDeepLink = null;
+
+function openDeepLink(link) {
+  const url = deepLinkToUrl(link);
+  if (!url) return;
+  if (!mainWindow || !pageView) {
+    pendingDeepLink = url;
+    return;
+  }
+  focusMainWindow();
+  pageView.webContents.loadURL(url);
+}
+
+function focusMainWindow() {
+  if (!mainWindow) return;
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+  if (pageView) pageView.webContents.focus();
+}
 
 // Where we remember window bounds between launches.
 const stateFile = path.join(app.getPath('userData'), 'window-state.json');
@@ -95,7 +141,9 @@ function createWindow() {
   );
 
   const page = pageView.webContents;
-  page.loadURL(HELIX_URL);
+  const startLink = pendingDeepLink || deepLinkFromArgv(process.argv);
+  pendingDeepLink = null;
+  page.loadURL(startLink || HELIX_URL);
   page.once('did-finish-load', () => page.focus());
 
   // Persist size/position.
@@ -137,6 +185,31 @@ function createWindow() {
   page.on('did-finish-load', () => syncToolbarBackground());
   page.on('did-navigate-in-page', () => syncToolbarBackground());
 
+  // Find in page: report match counts to the bar's search field.
+  page.on('found-in-page', (_e, result) => {
+    pushToolbarState({ findResult: { active: result.activeMatchOrdinal, matches: result.matches } });
+  });
+
+  page.on('context-menu', (_e, params) => showContextMenu(params));
+
+  // No connection: cover the page with a friendly offline screen and keep
+  // retrying, instead of Chromium's bare error page.
+  // Chromium still fires did-finish-load for its own error page, so a load
+  // only counts as recovered when no failure was seen since it started.
+  let loadFailed = false;
+  page.on('did-start-navigation', (_e, _url, isInPlace, isMainFrame) => {
+    if (isMainFrame && !isInPlace) loadFailed = false;
+  });
+  page.on('did-fail-load', (_e, code, _desc, url, isMainFrame) => {
+    // -3 is ERR_ABORTED (a navigation replaced by another one), not an outage.
+    if (!isMainFrame || code === -3) return;
+    loadFailed = true;
+    showOffline(url);
+  });
+  page.on('did-finish-load', () => {
+    if (!loadFailed) hideOffline();
+  });
+
   // Mouse back/forward buttons (Windows/Linux) and three-finger swipes (macOS).
   mainWindow.on('app-command', (_e, cmd) => {
     if (cmd === 'browser-backward') runAction('back');
@@ -148,15 +221,204 @@ function createWindow() {
   });
 
   mainWindow.on('closed', () => {
+    stopOfflineRetry();
     mainWindow = null;
     pageView = null;
+    offlineView = null;
   });
 }
 
 function layoutPage() {
   if (!mainWindow || !pageView) return;
   const [width, height] = mainWindow.getContentSize();
-  pageView.setBounds({ x: 0, y: TOOLBAR_HEIGHT, width, height: Math.max(0, height - TOOLBAR_HEIGHT) });
+  const bounds = { x: 0, y: TOOLBAR_HEIGHT, width, height: Math.max(0, height - TOOLBAR_HEIGHT) };
+  pageView.setBounds(bounds);
+  if (offlineView) offlineView.setBounds(bounds);
+}
+
+function deepLinkFromArgv(argv) {
+  // Windows/Linux pass the helix:// link as a command-line argument.
+  const arg = (argv || []).find((a) => typeof a === 'string' && a.startsWith(`${PROTOCOL}://`));
+  return arg ? deepLinkToUrl(arg) : null;
+}
+
+// ---- Offline screen ---------------------------------------------------------
+let offlineView = null;
+let offlineUrl = null;
+let offlineTimer = null;
+
+function showOffline(url) {
+  if (!mainWindow || !pageView) return;
+  if (url && /^https?:/.test(url)) offlineUrl = url;
+  if (!offlineView) {
+    offlineView = new WebContentsView({
+      webPreferences: {
+        preload: path.join(__dirname, 'toolbar-preload.js'),
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: true,
+      },
+    });
+    offlineView.setBackgroundColor('#0b0b0f');
+    offlineView.webContents.loadFile(path.join(__dirname, 'offline.html'));
+    mainWindow.contentView.addChildView(offlineView);
+    layoutPage();
+    pushToolbarState();
+  }
+  if (!offlineTimer) {
+    // Retry quickly once the OS reports a connection, slowly otherwise (the
+    // network can be "up" while Helix itself is unreachable).
+    let ticks = 0;
+    offlineTimer = setInterval(() => {
+      ticks += 1;
+      if (net.isOnline() || ticks % 6 === 0) retryOffline();
+    }, 5000);
+  }
+}
+
+function retryOffline() {
+  if (!pageView) return;
+  pageView.webContents.loadURL(offlineUrl || HELIX_URL);
+}
+
+function stopOfflineRetry() {
+  if (offlineTimer) clearInterval(offlineTimer);
+  offlineTimer = null;
+}
+
+function hideOffline() {
+  stopOfflineRetry();
+  if (!offlineView) return;
+  if (mainWindow) mainWindow.contentView.removeChildView(offlineView);
+  offlineView.webContents.close();
+  offlineView = null;
+  pushToolbarState();
+  if (pageView) pageView.webContents.focus();
+}
+
+/** The page's real address, even while the offline screen is up. */
+function currentPageUrl() {
+  if (!pageView) return HELIX_URL;
+  const url = pageView.webContents.getURL();
+  if (/^https?:/.test(url)) return url;
+  return offlineUrl || HELIX_URL;
+}
+
+// ---- Right-click menu --------------------------------------------------------
+// Electron ships no context menu at all, so without this there is no
+// copy/paste on right click and the spellchecker's suggestions never show.
+function showContextMenu(params) {
+  if (!pageView || !mainWindow) return;
+  const page = pageView.webContents;
+  const items = [];
+  const sep = () => { if (items.length && items[items.length - 1].type !== 'separator') items.push({ type: 'separator' }); };
+
+  if (params.misspelledWord) {
+    for (const word of params.dictionarySuggestions.slice(0, 5)) {
+      items.push({ label: word, click: () => page.replaceMisspelling(word) });
+    }
+    if (!params.dictionarySuggestions.length) items.push({ label: 'No suggestions', enabled: false });
+    items.push({
+      label: 'Add to Dictionary',
+      click: () => page.session.addWordToSpellCheckerDictionary(params.misspelledWord),
+    });
+    sep();
+  }
+
+  if (params.linkURL) {
+    const helixUrl = deepLinkToUrl(params.linkURL);
+    items.push({
+      label: helixUrl ? 'Open Link in New Window' : 'Open Link in Browser',
+      click: () => (helixUrl ? openInNewWindow(helixUrl) : shell.openExternal(params.linkURL)),
+    });
+    if (helixUrl) items.push({ label: 'Open Link in Browser', click: () => shell.openExternal(params.linkURL) });
+    items.push({ label: 'Copy Link', click: () => clipboard.writeText(params.linkURL) });
+    sep();
+  }
+
+  if (params.mediaType === 'image' && params.srcURL) {
+    items.push({ label: 'Copy Image', click: () => page.copyImageAt(params.x, params.y) });
+    items.push({ label: 'Save Image As…', click: () => page.downloadURL(params.srcURL) });
+    items.push({ label: 'Copy Image Address', click: () => clipboard.writeText(params.srcURL) });
+    sep();
+  }
+
+  const f = params.editFlags;
+  if (params.isEditable) {
+    items.push({ role: 'undo', enabled: f.canUndo });
+    items.push({ role: 'redo', enabled: f.canRedo });
+    sep();
+    items.push({ role: 'cut', enabled: f.canCut });
+    items.push({ role: 'copy', enabled: f.canCopy });
+    items.push({ role: 'paste', enabled: f.canPaste });
+    items.push({ role: 'pasteAndMatchStyle', enabled: f.canPaste });
+    items.push({ role: 'selectAll', enabled: f.canSelectAll });
+  } else if (params.selectionText && params.selectionText.trim()) {
+    items.push({ role: 'copy' });
+    const q = params.selectionText.trim().slice(0, 60);
+    items.push({
+      label: `Search Google for “${q.length < params.selectionText.trim().length ? q + '…' : q}”`,
+      click: () => shell.openExternal(`https://www.google.com/search?q=${encodeURIComponent(params.selectionText.trim())}`),
+    });
+  } else if (!params.linkURL && params.mediaType !== 'image') {
+    const nav = navHistory(page);
+    items.push({ label: 'Back', enabled: nav.canGoBack, click: () => runAction('back') });
+    items.push({ label: 'Forward', enabled: nav.canGoForward, click: () => runAction('forward') });
+    items.push({ label: 'Reload', click: () => runAction('reload') });
+    sep();
+    items.push({ label: 'Copy Page Link', click: () => runAction('copy') });
+  }
+
+  if (!app.isPackaged) {
+    sep();
+    items.push({ label: 'Inspect Element', click: () => page.inspectElement(params.x, params.y) });
+  }
+  while (items.length && items[items.length - 1].type === 'separator') items.pop();
+  if (!items.length) return;
+  Menu.buildFromTemplate(items).popup({ window: mainWindow });
+}
+
+function openInNewWindow(url) {
+  // Opens through the page so it gets the same handling as a target=_blank link.
+  if (!pageView) return;
+  pageView.webContents
+    .executeJavaScript(`window.open(${JSON.stringify(url)}, '_blank')`, true)
+    .catch(() => {});
+}
+
+// ---- Find in page ------------------------------------------------------------
+let findText = '';
+
+function openFind() {
+  if (!mainWindow) return;
+  mainWindow.webContents.focus();
+  pushToolbarState({ findOpen: true });
+}
+
+// findNext follows Electron's meaning: true = start a new search session,
+// false = move to the next/previous match of the current one.
+function findInPage(text, forward = true, findNext = true) {
+  if (!pageView) return;
+  const page = pageView.webContents;
+  findText = text || '';
+  if (!findText) {
+    page.stopFindInPage('clearSelection');
+    pushToolbarState({ findResult: { active: 0, matches: 0 } });
+    return;
+  }
+  page.findInPage(findText, { forward, findNext });
+}
+
+function findAgain(forward) {
+  if (!findText) return openFind();
+  findInPage(findText, forward, false);
+}
+
+function closeFind() {
+  if (!pageView) return;
+  pageView.webContents.stopFindInPage('keepSelection');
+  findText = '';
+  pageView.webContents.focus();
 }
 
 function navHistory(wc) {
@@ -180,7 +442,8 @@ function pushToolbarState(extra) {
     canGoBack: nav.canGoBack,
     canGoForward: nav.canGoForward,
     loading: page.isLoading(),
-    title: page.getTitle(),
+    // Chromium titles its error page with the failed host; say what it is.
+    title: offlineView ? 'Offline' : page.getTitle(),
     fullscreen: mainWindow.isFullScreen(),
     background: toolbarBackground,
     ...extra,
@@ -216,7 +479,7 @@ function runAction(action) {
       page.reload();
       break;
     case 'copy':
-      clipboard.writeText(page.getURL());
+      clipboard.writeText(currentPageUrl());
       pushToolbarState({ copied: true });
       break;
     case 'feedback':
@@ -226,6 +489,9 @@ function runAction(action) {
         .executeJavaScript("window.dispatchEvent(new CustomEvent('helix:open-feedback'))", true)
         .catch(() => {});
       break;
+    case 'retry':
+      retryOffline();
+      return;
     default:
       return;
   }
@@ -233,9 +499,25 @@ function runAction(action) {
   page.focus();
 }
 
+function fromToolbar(e) {
+  return !!mainWindow && e.sender === mainWindow.webContents;
+}
+
 ipcMain.on('toolbar:action', (e, action) => {
-  if (!mainWindow || e.sender !== mainWindow.webContents) return;
+  const fromOffline = !!offlineView && e.sender === offlineView.webContents;
+  if (!fromToolbar(e) && !(fromOffline && action === 'retry')) return;
   runAction(action);
+});
+ipcMain.on('toolbar:find', (e, q) => {
+  if (!fromToolbar(e) || !q) return;
+  findInPage(String(q.text || ''), q.forward !== false, !!q.findNext);
+});
+ipcMain.on('toolbar:find-close', (e) => {
+  if (fromToolbar(e)) closeFind();
+});
+// Bring the window forward, e.g. when a Helix notification is clicked.
+ipcMain.on('helix:focus', (e) => {
+  if (pageView && e.sender === pageView.webContents) focusMainWindow();
 });
 ipcMain.on('toolbar:ready', (e) => {
   if (!mainWindow || e.sender !== mainWindow.webContents) return;
@@ -378,11 +660,22 @@ const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
   app.quit();
 } else {
-  app.on('second-instance', () => {
-    if (mainWindow) {
-      if (mainWindow.isMinimized()) mainWindow.restore();
-      mainWindow.focus();
-    }
+  // Register helix:// with the OS (installed app only; in development it
+  // would point the scheme at the bare Electron binary).
+  if (app.isPackaged) app.setAsDefaultProtocolClient(PROTOCOL);
+
+  // macOS delivers helix:// links here, also on a cold start (before ready).
+  app.on('open-url', (event, link) => {
+    event.preventDefault();
+    openDeepLink(link);
+  });
+
+  app.on('second-instance', (_e, argv) => {
+    // Windows/Linux: a helix:// link launches a second instance with the link
+    // in argv; forward it to the running window.
+    const link = (argv || []).find((a) => typeof a === 'string' && a.startsWith(`${PROTOCOL}://`));
+    if (link) openDeepLink(link);
+    else focusMainWindow();
   });
 
   app.whenReady().then(() => {
@@ -437,7 +730,24 @@ function buildMenu() {
         }]
       : []),
     { role: 'fileMenu' },
-    { role: 'editMenu' },
+    {
+      label: 'Edit',
+      submenu: [
+        { role: 'undo' },
+        { role: 'redo' },
+        { type: 'separator' },
+        { role: 'cut' },
+        { role: 'copy' },
+        { role: 'paste' },
+        { role: 'pasteAndMatchStyle' },
+        { role: 'delete' },
+        { role: 'selectAll' },
+        { type: 'separator' },
+        { label: 'Find…', accelerator: 'CmdOrCtrl+F', click: () => openFind() },
+        { label: 'Find Next', accelerator: 'CmdOrCtrl+G', click: () => findAgain(true) },
+        { label: 'Find Previous', accelerator: 'Shift+CmdOrCtrl+G', click: () => findAgain(false) },
+      ],
+    },
     {
       label: 'View',
       // Explicit handlers instead of roles: roles act on the focused

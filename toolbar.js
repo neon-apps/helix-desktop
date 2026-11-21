@@ -25,6 +25,40 @@
 
   let copiedTimer = null;
 
+  // ---- Find in page (Cmd/Ctrl+F) ----
+  const input = $('find-input');
+  const count = $('find-count');
+
+  // Electron's findNext is inverted from what the name suggests: true starts a
+  // new search session, false steps to the next/previous match in it.
+  function openFind() {
+    root.classList.add('finding');
+    input.focus();
+    input.select();
+    if (input.value) api.find({ text: input.value, forward: true, findNext: true });
+  }
+  function closeFind() {
+    root.classList.remove('finding');
+    count.textContent = '';
+    count.classList.remove('none');
+    api.findClose();
+  }
+  function step(forward) {
+    if (input.value) api.find({ text: input.value, forward, findNext: false });
+  }
+
+  input.addEventListener('input', () => {
+    if (!input.value) count.textContent = '';
+    api.find({ text: input.value, forward: true, findNext: true });
+  });
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); step(!e.shiftKey); }
+    if (e.key === 'Escape') { e.preventDefault(); closeFind(); }
+  });
+  $('find-next').addEventListener('click', () => step(true));
+  $('find-prev').addEventListener('click', () => step(false));
+  $('find-close').addEventListener('click', closeFind);
+
   api.onState((s) => {
     $('back').disabled = !s.canGoBack;
     $('forward').disabled = !s.canGoForward;
@@ -46,6 +80,13 @@
         root.style.setProperty('--bg', s.background);
         root.classList.toggle('light', lum > 0.6);
       }
+    }
+
+    if (s.findOpen) openFind();
+    if (s.findResult && root.classList.contains('finding')) {
+      const { active, matches } = s.findResult;
+      count.textContent = input.value ? (matches ? `${active}/${matches}` : 'No results') : '';
+      count.classList.toggle('none', !!input.value && !matches);
     }
 
     if (s.copied) {

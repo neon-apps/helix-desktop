@@ -15,4 +15,7 @@ contextBridge.exposeInMainWorld('helix', {
   // refresh, copy link and feedback, so the web app hides its floating
   // options button.
   toolbar: true,
+  // Bring the window to the front (v1.0.7+), e.g. when a notification is
+  // clicked while Helix is in the background or minimized.
+  focus: () => ipcRenderer.send('helix:focus'),
 });
