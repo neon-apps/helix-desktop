@@ -80,7 +80,6 @@
   button:active:not(:disabled) { background: var(--press); }
   button:disabled { opacity: 0.32; }
   button:focus-visible { outline: 2px solid rgba(99, 102, 241, 0.7); outline-offset: 1px; }
-  button.pill { padding: 0 10px 0 8px; }
   svg { width: 16px; height: 16px; flex: none; }
   .ok { color: var(--ok) !important; }
   /* The hidden attribute does not apply to inline SVG, so toggle a class. */
@@ -135,7 +134,7 @@
   .find .none { color: #f87171; }
   .find button { height: 24px; min-width: 24px; padding: 0 4px; }
   .find button svg { width: 14px; height: 14px; }
-  @media (max-width: 640px) { .title { display: none; } .pill span { display: none; } }
+  @media (max-width: 640px) { .title { display: none; } }
 </style>
 </head>
 <body>
@@ -173,9 +172,8 @@
         <svg id="copied-icon" class="off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
       </button>
       <div class="sep"></div>
-      <button id="feedback" class="pill" title="Send feedback" aria-label="Send feedback">
+      <button id="feedback" title="Send feedback" aria-label="Send feedback">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M12 7v6"/><path d="M9 10h6"/></svg>
-        <span>Feedback</span>
       </button>
     </div>
   </div>
