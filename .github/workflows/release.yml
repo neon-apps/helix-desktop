@@ -5,8 +5,8 @@
 #   git tag v1.0.0 && git push origin v1.0.0
 #
 # macOS installers build on a mac runner, Windows on a windows runner (Windows
-# installers can't be produced reliably off Windows). Both publish into the same
-# GitHub Release (electron-builder's github provider), which electron-updater reads.
+# installers can't be produced reliably off Windows). Both upload into the same
+# draft GitHub Release, which is published once both have finished (see publish).
 name: release
 
 on:
@@ -18,7 +18,17 @@ permissions:
   contents: write # electron-builder needs this to create/upload the Release
 
 jobs:
+  # Create the release as a draft first, so both platform builds upload into
+  # the same draft instead of racing to create one each.
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - run: gh release view "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" --draft --title "$GITHUB_REF_NAME" --notes ""
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   build:
+    needs: prepare
     strategy:
       fail-fast: false # one platform failing shouldn't cancel the other
       matrix:
@@ -71,5 +81,16 @@ jobs:
       - name: Build & publish (Windows)
         if: runner.os == 'Windows'
         run: npm run release:win
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Only once every platform has uploaded: publish the draft and mark it latest.
+  # Until then the previous release stays "latest", so the updater feed and the
+  # /download links never point at a release with missing files.
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - run: gh release edit "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" --draft=false --latest
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

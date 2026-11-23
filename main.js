@@ -657,11 +657,18 @@ function checkForUpdatesInteractive() {
   }
   function onError(err) {
     cleanup();
+    const raw = String((err && err.message) || err || '');
+    // A 404 on the update feed means a release is published but its files for
+    // this platform aren't there yet: nothing is wrong on the user's side.
+    const preparing = /404|latest(-mac)?\.yml/i.test(raw);
     dialog.showMessageBox({
-      type: 'error',
-      message: 'Update check failed',
-      detail: String((err && err.message) || err || 'Unknown error'),
+      type: preparing ? 'info' : 'warning',
+      message: preparing ? 'A new version is on its way' : 'Couldn’t check for updates',
+      detail: preparing
+        ? 'It’s still being prepared. Try again in a few minutes.'
+        : 'Check your internet connection and try again.',
     });
+    console.error('[updater] manual check failed:', raw);
   }
 
   autoUpdater.autoDownload = true;

@@ -10,9 +10,12 @@ publish:
   provider: github
   owner: neon-apps
   repo: helix-desktop
-  # Publish as a full (non-draft) release so /releases/latest/download/… and the
-  # updater feed resolve immediately. Default is 'draft', which 404s publicly.
-  releaseType: release
+  # Upload into a DRAFT release; the release workflow publishes it only after
+  # every platform has finished. Publishing straight away (the old setting)
+  # let the first finished build make the release "latest" while the other
+  # platform's update feed (latest-mac.yml / latest.yml) was still missing,
+  # so "Check for Updates" failed with a 404 for those users meanwhile.
+  releaseType: draft
 
 # helix:// links (e.g. helix://tasks/123) open in the app. macOS reads this
 # from Info.plist; Windows registers it at runtime (setAsDefaultProtocolClient).
