@@ -107,7 +107,9 @@ function createWindow() {
     minHeight: 600,
     backgroundColor: '#0b0b0f',
     title: 'Helix',
-    icon: path.join(__dirname, 'assets/icon.png'),
+    // macOS takes the Dock icon from the app bundle; this is the window/taskbar
+    // icon on Windows and Linux, so it uses the edge-to-edge tile.
+    icon: path.join(__dirname, isMac ? 'assets/icon.png' : 'assets/icon-win.png'),
     // macOS: no title bar; the traffic lights sit inside our own top bar
     // instead of floating over the page.
     titleBarStyle: isMac ? 'hidden' : 'default',

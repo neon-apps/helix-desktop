@@ -63,7 +63,7 @@ dmg:
   title: Helix ${version}
 
 win:
-  icon: assets/icon.png
+  icon: assets/icon-win.png
   target:
     - target: nsis
       arch: [x64]
